@@ -468,7 +468,7 @@ RectTransform:
   m_PrefabAsset: {fileID: 0}
   m_GameObject: {fileID: 235444258}
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: 0, y: 0, z: 3.32}
+  m_LocalPosition: {x: 0, y: 0, z: 3.63}
   m_LocalScale: {x: 0.004, y: 0.004, z: 0.004}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -477,7 +477,7 @@ RectTransform:
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
   m_AnchorMin: {x: 0, y: 0}
   m_AnchorMax: {x: 0, y: 0}
-  m_AnchoredPosition: {x: 2.39, y: 2}
+  m_AnchoredPosition: {x: 2.13, y: 2}
   m_SizeDelta: {x: 600, y: 200}
   m_Pivot: {x: 0.5, y: 0.5}
 --- !u!1 &260652181
@@ -492,7 +492,7 @@ GameObject:
   - component: {fileID: 260652185}
   - component: {fileID: 260652184}
   - component: {fileID: 260652183}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: '[BuildingBlock] HandGrabInstallationRoutine'
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1205,7 +1205,7 @@ GameObject:
   - component: {fileID: 602383992}
   - component: {fileID: 602383993}
   - component: {fileID: 602383994}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Player_Cyl
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1221,7 +1221,7 @@ Transform:
   m_GameObject: {fileID: 602383985}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 1.4, y: 0.7, z: -0.192}
+  m_LocalPosition: {x: 1.4, y: 0.7, z: 0.053}
   m_LocalScale: {x: 1, y: 0.5, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -1330,7 +1330,7 @@ MonoBehaviour:
   maximumPositionError: 0.5
   maximumRotationError: 90
   positionWeight: 0.6
-  rotationWeight: 0.4
+  rotationWeight: 0
   partRigidbody: {fileID: 602383987}
   grabBehaviours: []
 --- !u!114 &602383993
@@ -1959,7 +1959,7 @@ GameObject:
   - component: {fileID: 958337723}
   - component: {fileID: 958337722}
   - component: {fileID: 958337721}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: '[BuildingBlock] HandGrabInstallationRoutine'
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2366,7 +2366,7 @@ Transform:
   m_GameObject: {fileID: 1198379734}
   serializedVersion: 2
   m_LocalRotation: {x: 0, y: 0, z: 0, w: 1}
-  m_LocalPosition: {x: -1.02809, y: 0.71, z: 2.49725}
+  m_LocalPosition: {x: -0.28, y: 0.71, z: 2.49725}
   m_LocalScale: {x: 1, y: 1, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -2530,7 +2530,7 @@ GameObject:
   - component: {fileID: 1230158852}
   - component: {fileID: 1230158856}
   - component: {fileID: 1230158857}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Player_Cube
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2546,7 +2546,7 @@ Transform:
   m_GameObject: {fileID: 1230158850}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 2.29, y: 0.39, z: -1.89}
+  m_LocalPosition: {x: 0.52, y: 0.39, z: 0.023}
   m_LocalScale: {x: 0.5, y: 0.5, z: 0.5}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -2676,7 +2676,7 @@ MonoBehaviour:
   maximumPositionError: 0.5
   maximumRotationError: 90
   positionWeight: 0.6
-  rotationWeight: 0.4
+  rotationWeight: 0
   partRigidbody: {fileID: 1230158852}
   grabBehaviours: []
 --- !u!114 &1230158857
@@ -3044,7 +3044,7 @@ GameObject:
   - component: {fileID: 1336437671}
   - component: {fileID: 1336437670}
   - component: {fileID: 1336437669}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: '[BuildingBlock] HandGrabInstallationRoutine'
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -3163,7 +3163,7 @@ GameObject:
   - component: {fileID: 1432015614}
   - component: {fileID: 1432015619}
   - component: {fileID: 1432015620}
-  m_Layer: 0
+  m_Layer: 3
   m_Name: Player_Plank
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -3179,7 +3179,7 @@ Transform:
   m_GameObject: {fileID: 1432015612}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 1.42, y: 0.7, z: -1.36}
+  m_LocalPosition: {x: 1.42, y: 0.7, z: -1.05}
   m_LocalScale: {x: 0.5, y: 1, z: 0.5}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -3309,7 +3309,7 @@ MonoBehaviour:
   maximumPositionError: 0.5
   maximumRotationError: 90
   positionWeight: 0.6
-  rotationWeight: 0.4
+  rotationWeight: 0
   partRigidbody: {fileID: 1432015614}
   grabBehaviours: []
 --- !u!114 &1432015620
@@ -3364,7 +3364,7 @@ Transform:
   m_GameObject: {fileID: 1504125028}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: -0.69, y: 0, z: 0.0227499}
+  m_LocalPosition: {x: -0.69, y: -0.194, z: -0.297}
   m_LocalScale: {x: 0.5, y: 1, z: 0.5}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3392,7 +3392,7 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 0
+  m_UseGravity: 1
   m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 0
@@ -3782,7 +3782,7 @@ Transform:
   m_GameObject: {fileID: 1516885150}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.098, y: 0.7630001, z: 0.0227499}
+  m_LocalPosition: {x: 0.098, y: -0.452, z: -0.682}
   m_LocalScale: {x: 0.5, y: 0.5, z: 0.5}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -3810,7 +3810,7 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 0
+  m_UseGravity: 1
   m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 0
@@ -4124,7 +4124,7 @@ Transform:
   m_GameObject: {fileID: 1595358164}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 0.1, y: 0, z: 0.0077500343}
+  m_LocalPosition: {x: 0.1, y: -0.202, z: 0.11}
   m_LocalScale: {x: 1, y: 0.5, z: 1}
   m_ConstrainProportionsScale: 0
   m_Children: []
@@ -4152,7 +4152,7 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 0
+  m_UseGravity: 1
   m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 0
