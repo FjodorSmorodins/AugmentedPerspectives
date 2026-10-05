@@ -5471,6 +5471,10 @@ PrefabInstance:
       propertyPath: '_locomotionTurners.Array.data[1]'
       value: 
       objectReference: {fileID: 1985046667}
+    - target: {fileID: 7125022930954105527, guid: 46fdef3df9a5a354caf7692f85e5eff2, type: 3}
+      propertyPath: m_IsActive
+      value: 0
+      objectReference: {fileID: 0}
     - target: {fileID: 9036790477084799080, guid: 46fdef3df9a5a354caf7692f85e5eff2, type: 3}
       propertyPath: _centerEyeCamera
       value: 
