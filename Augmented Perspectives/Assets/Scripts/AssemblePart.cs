@@ -112,6 +112,22 @@ public class AssemblePart : MonoBehaviour
         }
     }
 
+    public void UnfreezeAfterSubmission()
+    {
+        foreach (Behaviour behaviour in grabBehaviours)
+        {
+            if (behaviour != null)
+                behaviour.enabled = true;
+        }
+
+        if (partRigidbody != null)
+        {
+            partRigidbody.linearVelocity = Vector3.zero;
+            partRigidbody.angularVelocity = Vector3.zero;
+            partRigidbody.isKinematic = startingKinematic;
+        }
+    }
+
     public void ResetPart()
     {
         if (partRigidbody != null)
@@ -120,17 +136,12 @@ public class AssemblePart : MonoBehaviour
             partRigidbody.angularVelocity = Vector3.zero;
             partRigidbody.position = startingPosition;
             partRigidbody.rotation = startingRotation;
-            partRigidbody.isKinematic = startingKinematic;
         }
         else
         {
             transform.SetPositionAndRotation(startingPosition, startingRotation);
         }
 
-        foreach (Behaviour behaviour in grabBehaviours)
-        {
-            if (behaviour != null)
-                behaviour.enabled = true;
-        }
+        UnfreezeAfterSubmission();
     }
 }
