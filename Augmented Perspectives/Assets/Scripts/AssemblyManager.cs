@@ -2,10 +2,6 @@ using TMPro;
 using Unity.Netcode;
 using UnityEngine;
 
-using TMPro;
-using Unity.Netcode;
-using UnityEngine;
-
 public class AssemblyManager : NetworkBehaviour
 {
     [Header("Assembly")]
@@ -15,10 +11,19 @@ public class AssemblyManager : NetworkBehaviour
     [SerializeField] private TMP_Text scoreText;
     [SerializeField] private bool showLiveScore = true;
 
+    [Header("Success")]
+    [SerializeField, Range(0f, 100f)] private float successThreshold = 85f;
+    private bool hasReachedSuccess;
+    private bool awaitingNetworkReset;
+
     // The server/host writes these values.
     // Every connected player receives them.
     private readonly NetworkVariable<float> networkScore = new(0f);
     private readonly NetworkVariable<bool> networkSubmitted = new(false);
+    private readonly NetworkVariable<bool> networkSuccess = new(false);
+    private bool localSubmitted;
+    private float localScore;
+    private bool Submitted => IsSpawned ? networkSubmitted.Value : localSubmitted;
 
     public float OverallScore
     {
@@ -49,6 +54,8 @@ public class AssemblyManager : NetworkBehaviour
     {
         networkScore.OnValueChanged += OnNetworkScoreChanged;
         networkSubmitted.OnValueChanged += OnSubmittedChanged;
+        networkSuccess.OnValueChanged += OnSuccessChanged;
+        hasReachedSuccess = false;
 
         ApplySubmittedState(networkSubmitted.Value);
         RefreshScoreDisplay();
@@ -58,23 +65,38 @@ public class AssemblyManager : NetworkBehaviour
     {
         networkScore.OnValueChanged -= OnNetworkScoreChanged;
         networkSubmitted.OnValueChanged -= OnSubmittedChanged;
+        networkSuccess.OnValueChanged -= OnSuccessChanged;
     }
 
     private void Update()
     {
-        if (!IsSpawned)
-            return;
-
-        if (showLiveScore && !networkSubmitted.Value)
+        if (IsSpawned && IsServer && !Submitted)
+        {
+            float accuracy = OverallScore;
+            if (Mathf.Abs(networkScore.Value - accuracy) >= 0.1f ||
+                (accuracy >= successThreshold && !networkSuccess.Value))
+                networkScore.Value = accuracy;
+            if (accuracy >= successThreshold)
+                networkSuccess.Value = true;
+        }
+        CheckForSuccess();
+        if (showLiveScore && !Submitted)
             RefreshScoreDisplay();
     }
 
     // Connect the Submit button to this method.
     public void RequestSubmit()
     {
-        if (!IsSpawned || networkSubmitted.Value)
+        if (Submitted)
             return;
-
+        if (!IsSpawned)
+        {
+            localScore = OverallScore;
+            localSubmitted = true;
+            ApplySubmittedState(true);
+            RefreshScoreDisplay();
+            return;
+        }
         SubmitRpc();
     }
 
@@ -86,6 +108,8 @@ public class AssemblyManager : NetworkBehaviour
             return;
 
         networkScore.Value = OverallScore;
+        if (networkScore.Value >= successThreshold)
+            networkSuccess.Value = true;
         networkSubmitted.Value = true;
     }
 
@@ -93,15 +117,55 @@ public class AssemblyManager : NetworkBehaviour
     public void RequestReset()
     {
         if (!IsSpawned)
+        {
+            ResetParts();
+            localSubmitted = false;
+            localScore = 0f;
+            RefreshScoreDisplay();
             return;
-
+        }
         ResetRpc();
     }
 
     [Rpc(SendTo.Server, RequireOwnership = false)]
     private void ResetRpc()
     {
-        // This code executes only on the host/server.
+        networkSuccess.Value = false;
+        ResetParts();
+
+        networkScore.Value = 0f;
+        networkSuccess.Value = false;
+        networkSubmitted.Value = false;
+        ResetRemotePartsRpc();
+    }
+
+    [Rpc(SendTo.NotServer)]
+    private void ResetRemotePartsRpc()
+    {
+        awaitingNetworkReset = networkSuccess.Value;
+        hasReachedSuccess = false;
+        GetComponent<AssemblySuccessFeedback>()?.ResetFeedback();
+        foreach (AssemblePart part in parts)
+            if (part != null)
+                part.ResetPart();
+        RefreshScoreDisplay();
+    }
+
+    private void OnSuccessChanged(bool previous, bool current)
+    {
+        if (!current)
+        {
+            awaitingNetworkReset = false;
+            hasReachedSuccess = false;
+            GetComponent<AssemblySuccessFeedback>()?.ResetFeedback();
+        }
+        RefreshScoreDisplay();
+    }
+
+    private void ResetParts()
+    {
+        hasReachedSuccess = false;
+        GetComponent<AssemblySuccessFeedback>()?.ResetFeedback();
         foreach (AssemblePart part in parts)
         {
             if (part == null)
@@ -119,13 +183,13 @@ public class AssemblyManager : NetworkBehaviour
                     NetworkManager.ServerClientId);
             }
 
-            // Only the server moves the parts back.
+            // Reset locally in offline mode, or on the server in a network session.
             part.ResetPart();
         }
-
-        networkScore.Value = 0f;
-        networkSubmitted.Value = false;
     }
+
+    public void SubmitAssembly() => RequestSubmit();
+    public void ResetAssembly() => RequestReset();
 
     private void OnNetworkScoreChanged(
         float previousValue,
@@ -156,20 +220,36 @@ public class AssemblyManager : NetworkBehaviour
         }
     }
 
+    private void CheckForSuccess()
+    {
+        if (hasReachedSuccess || (IsSpawned && awaitingNetworkReset))
+            return;
+        if (IsSpawned && !networkSuccess.Value)
+            return;
+        float accuracy = IsSpawned ? networkScore.Value : (Submitted ? localScore : OverallScore);
+        if (!IsSpawned && accuracy < successThreshold)
+            return;
+        hasReachedSuccess = true;
+        GetComponent<AssemblySuccessFeedback>()?.PlaySuccess();
+        Debug.Log($"[AssemblySuccess] Accuracy reached {accuracy:0}% (target {successThreshold:0}%).");
+        WriteScoreText();
+    }
+
     private void RefreshScoreDisplay()
+    {
+        CheckForSuccess();
+        WriteScoreText();
+    }
+
+    private void WriteScoreText()
     {
         if (scoreText == null)
             return;
-
-        if (networkSubmitted.Value)
-        {
-            scoreText.text =
-                $"Final accuracy: {networkScore.Value:0}%";
-        }
-        else
-        {
-            scoreText.text =
-                $"Assembly accuracy: {OverallScore:0}%";
-        }
+        string accuracyText = Submitted
+            ? $"Final accuracy: {(IsSpawned ? networkScore.Value : localScore):0}%"
+            : $"Assembly accuracy: {(IsSpawned ? networkScore.Value : OverallScore):0}%";
+        scoreText.text = hasReachedSuccess
+            ? $"<color=#55FF77>SUCCESS!</color>\n{accuracyText}"
+            : accuracyText;
     }
 }

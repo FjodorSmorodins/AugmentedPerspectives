@@ -50,12 +50,16 @@
     <Analyzer Include="C:\Users\Owner\AugmentedPerspectives\Augmented Perspectives\Library\PackageCache\com.unity.pipeline@ab05e9cd7f74\Runtime\Analyzers\IlInterpreterAnalyzer.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Scripts\AssemblySuccessFeedback.cs" />
     <Compile Include="Assets\Scripts\AssemblePart.cs" />
     <Compile Include="Assets\Scripts\NetworkGrabOwnership.cs" />
     <Compile Include="Assets\Scripts\AssemblyManager.cs" />
+    <Compile Include="Assets\Scripts\FloorPlayArea.cs" />
+    <Compile Include="Assets\Scripts\ReferencePartVisibility.cs" />
     <Compile Include="Assets\Scripts\NetworkLauncher.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />
     <Compile Include="Assets\Scripts\PalmTransformation.cs" />
+    <Compile Include="Assets\Scripts\NetworkPlayerMarkers.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />
@@ -74,8 +78,11 @@
     <None Include="Assets\TextMesh Pro\Resources\LineBreaking Leading Characters.txt" />
     <None Include="Assets\TextMesh Pro\Shaders\TMPro_Properties.cginc" />
     <None Include="Assets\TextMesh Pro\Shaders\TMPro_Surface.cginc" />
+    <None Include="Assets\GreenSuccessParticles.shader" />
     <None Include="Assets\TextMesh Pro\Resources\LineBreaking Following Characters.txt" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF-Mobile Masking.shader" />
+    <None Include="Assets\PlayerMarkers.shader" />
+    <None Include="Assets\RedFloorOutline.shader" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_SDF Overlay.shader" />
     <None Include="Assets\TextMesh Pro\Shaders\TMP_Bitmap-Mobile.shader" />
     <None Include="Assets\TextMesh Pro\Fonts\LiberationSans - OFL.txt" />
