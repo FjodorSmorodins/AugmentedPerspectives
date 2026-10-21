@@ -70,6 +70,7 @@ public class AssemblyManager : NetworkBehaviour
 
     private void Update()
     {
+        if (!CalibrationLobby.CanPlay) return;
         if (IsSpawned && IsServer && !Submitted)
         {
             float accuracy = OverallScore;
@@ -87,6 +88,7 @@ public class AssemblyManager : NetworkBehaviour
     // Connect the Submit button to this method.
     public void RequestSubmit()
     {
+        if (!CalibrationLobby.CanPlay) return;
         if (Submitted)
             return;
         if (!IsSpawned)
@@ -103,6 +105,7 @@ public class AssemblyManager : NetworkBehaviour
     [Rpc(SendTo.Server, RequireOwnership = false)]
     private void SubmitRpc()
     {
+        if (!CalibrationLobby.CanPlay) return;
         // This code executes on the host/server.
         if (networkSubmitted.Value)
             return;
@@ -116,6 +119,7 @@ public class AssemblyManager : NetworkBehaviour
     // Connect the Reset button to this method.
     public void RequestReset()
     {
+        if (!CalibrationLobby.CanPlay) return;
         if (!IsSpawned)
         {
             ResetParts();
@@ -130,6 +134,7 @@ public class AssemblyManager : NetworkBehaviour
     [Rpc(SendTo.Server, RequireOwnership = false)]
     private void ResetRpc()
     {
+        if (!CalibrationLobby.CanPlay) return;
         networkSuccess.Value = false;
         ResetParts();
 
@@ -222,6 +227,7 @@ public class AssemblyManager : NetworkBehaviour
 
     private void CheckForSuccess()
     {
+        if (!CalibrationLobby.CanPlay) return;
         if (hasReachedSuccess || (IsSpawned && awaitingNetworkReset))
             return;
         if (IsSpawned && !networkSuccess.Value)

@@ -42,7 +42,7 @@ public class NetworkGrabOwnership : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         snapped.OnValueChanged -= HandleSnapChanged;
-        body.isKinematic = originalKinematic || grabbable.SelectingPointsCount > 0 ||
+        body.isKinematic = !CalibrationLobby.CanPlay || originalKinematic || grabbable.SelectingPointsCount > 0 ||
                            (part != null && part.IsLocked);
     }
 
@@ -133,7 +133,7 @@ public class NetworkGrabOwnership : NetworkBehaviour
         // Meta's Grabbable changes kinematic state during selection and release.
         // Reconcile that with ownership: remote replicas must never run gravity,
         // and an ownership grant must not turn a held object into a falling body.
-        bool kinematic = !IsOwner || originalKinematic || grabbable.SelectingPointsCount > 0 ||
+        bool kinematic = !CalibrationLobby.CanPlay || !IsOwner || originalKinematic || grabbable.SelectingPointsCount > 0 ||
                          (part != null && part.IsLocked);
         if (body.isKinematic != kinematic)
             body.isKinematic = kinematic;

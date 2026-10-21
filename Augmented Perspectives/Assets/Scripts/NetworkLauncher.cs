@@ -192,7 +192,7 @@ public class NetworkLauncher : MonoBehaviour
         if (starting && error && startupError == null)
             startupError = message;
         if (!error && type != LogType.Warning && !message.Contains("[NetworkLauncher]") &&
-            !message.Contains("[NetworkGrab]") && !message.Contains("Netcode") && !message.Contains("Transport"))
+            !message.Contains("[NetworkGrab]") && !message.Contains("[CalibrationLobby]") && !message.Contains("Netcode") && !message.Contains("Transport"))
             return;
         try
         {

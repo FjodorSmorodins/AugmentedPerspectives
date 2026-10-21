@@ -40,6 +40,7 @@ public class AssemblePart : MonoBehaviour
     private Grabbable grabbable;
     private bool[] startingGrabEnabled;
     private ReferencePartVisibility referenceVisibility;
+    private bool lobbyPhysicsPaused;
     private bool pendingSnap;
     private Vector3 releasedPosition;
 
@@ -146,9 +147,9 @@ public class AssemblePart : MonoBehaviour
     }
 
     // Visibility and grab permission use the same host/join audience rules.
-    // Keep offline interaction available until a multiplayer role is established.
-    public bool CanClientGrab(ulong clientId) => referenceVisibility == null ||
-        !referenceVisibility.IsVisibleToRole(clientId == Unity.Netcode.NetworkManager.ServerClientId);
+    // The calibration lobby must release the parts before role-based grabbing begins.
+    public bool CanClientGrab(ulong clientId) => CalibrationLobby.CanPlay && (referenceVisibility == null ||
+        !referenceVisibility.IsVisibleToRole(clientId == Unity.Netcode.NetworkManager.ServerClientId));
 
     private bool CanLocalPlayerGrab
     {
@@ -162,14 +163,35 @@ public class AssemblePart : MonoBehaviour
         }
     }
 
+    private void Start()
+    {
+        ApplyGrabPermissions();
+        UpdateLobbyPhysics();
+    }
+
     private void Update()
     {
         ApplyGrabPermissions();
+        UpdateLobbyPhysics();
+    }
+
+    private void UpdateLobbyPhysics()
+    {
+        if (partRigidbody == null) return;
+        bool paused = !CalibrationLobby.CanPlay;
+        if (paused)
+        {
+            ClearVelocity();
+            partRigidbody.isKinematic = true;
+        }
+        else if (lobbyPhysicsPaused)
+            partRigidbody.isKinematic = !CalibrationLobby.CanPlay || IsLocked || startingKinematic;
+        lobbyPhysicsPaused = paused;
     }
 
     private void ApplyGrabPermissions()
     {
-        bool canGrab = !IsLocked && CanLocalPlayerGrab;
+        bool canGrab = CalibrationLobby.CanPlay && !IsLocked && CanLocalPlayerGrab;
         if (!canGrab)
             pendingSnap = false;
         for (int i = 0; i < grabBehaviours.Length; i++)
@@ -266,7 +288,7 @@ public class AssemblePart : MonoBehaviour
             return;
         ClearVelocity();
         partRigidbody.constraints = IsLocked ? RigidbodyConstraints.FreezeAll : startingConstraints;
-        partRigidbody.isKinematic = IsLocked || startingKinematic;
+        partRigidbody.isKinematic = !CalibrationLobby.CanPlay || IsLocked || startingKinematic;
     }
 
     private void ClearVelocity()

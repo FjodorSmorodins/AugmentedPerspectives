@@ -1,4 +1,4 @@
-﻿<Project>
+<Project>
   <!-- Generated file, do not modify, your changes will be overwritten (use AssetPostprocessor.OnGeneratedCSProject) -->
   <PropertyGroup>
     <BaseIntermediateOutputPath>Temp\obj\$(MSBuildProjectName)</BaseIntermediateOutputPath>
@@ -55,6 +55,7 @@
     <Compile Include="Assets\Scripts\NetworkGrabOwnership.cs" />
     <Compile Include="Assets\Scripts\AssemblyManager.cs" />
     <Compile Include="Assets\Scripts\FloorPlayArea.cs" />
+    <Compile Include="Assets\Scripts\CalibrationLobby.cs" />
     <Compile Include="Assets\Scripts\ReferencePartVisibility.cs" />
     <Compile Include="Assets\Scripts\NetworkLauncher.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />

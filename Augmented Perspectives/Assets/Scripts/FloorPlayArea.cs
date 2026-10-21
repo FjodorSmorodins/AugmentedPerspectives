@@ -12,12 +12,15 @@ public class FloorPlayArea : MonoBehaviour
     [SerializeField, Min(0.001f)] private float lineWidth = 0.01f;
     [SerializeField] private float floorOffset = 0.005f;
 
+    [SerializeField] private bool autoCenterPlayer = true;
+
     private Mesh outlineMesh;
     private OVRDisplay display;
 
     private IEnumerator Start()
     {
         BuildOutline();
+        if (!autoCenterPlayer) yield break; // Manual calibration owns the tracking origin.
         if (cameraRigRoot == null || headAnchor == null)
         {
             Debug.LogError("[PlayArea] Assign the camera rig root and head anchor.");
@@ -72,7 +75,7 @@ public class FloorPlayArea : MonoBehaviour
     [ContextMenu("Center Player In Area")]
     public void CenterPlayer()
     {
-        if (cameraRigRoot == null || headAnchor == null)
+        if (!autoCenterPlayer || cameraRigRoot == null || headAnchor == null)
             return;
         Vector3 offset = transform.position - headAnchor.position;
         offset.y = 0f; // Floor-level tracking preserves the wearer's real head height.

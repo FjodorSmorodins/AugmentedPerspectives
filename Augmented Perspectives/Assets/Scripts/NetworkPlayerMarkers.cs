@@ -56,7 +56,7 @@ public class NetworkPlayerMarkers : NetworkBehaviour
             if (localRig == null || localRig.centerEyeAnchor == null || Time.unscaledTime < nextSend)
                 return;
             nextSend = Time.unscaledTime + 1f / 30f;
-            bool headTracked = OVRManager.isHmdPresent && OVRManager.hasVrFocus;
+            bool headTracked = CalibrationLobby.CanPlay && OVRManager.isHmdPresent && OVRManager.hasVrFocus;
             pose.Value = new MarkerPose
             {
                 Head = localRig.centerEyeAnchor.position - Vector3.up * headOffset,
@@ -72,6 +72,12 @@ public class NetworkPlayerMarkers : NetworkBehaviour
         }
         if (spheres == null)
             return;
+        if (!CalibrationLobby.CanPlay)
+        {
+            foreach (Transform marker in spheres) marker.gameObject.SetActive(false);
+            headVisible = leftVisible = rightVisible = false;
+            return;
+        }
         MarkerPose current = pose.Value;
         UpdateMarker(spheres[0], current.Head, current.HeadTracked, ref headVisible);
         UpdateMarker(spheres[1], current.Left, current.LeftTracked, ref leftVisible);
