@@ -50,6 +50,7 @@
     <Analyzer Include="C:\Users\Owner\AugmentedPerspectives\Augmented Perspectives\Library\PackageCache\com.unity.pipeline@ab05e9cd7f74\Runtime\Analyzers\IlInterpreterAnalyzer.dll" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Assets\Scripts\CalibrationLayoutPreview.cs" />
     <Compile Include="Assets\Scripts\AssemblySuccessFeedback.cs" />
     <Compile Include="Assets\Scripts\AssemblePart.cs" />
     <Compile Include="Assets\Scripts\NetworkGrabOwnership.cs" />
@@ -59,11 +60,14 @@
     <Compile Include="Assets\Scripts\LanHostDiscovery.cs" />
     <Compile Include="Assets\Scripts\CalibrationLobby.cs" />
     <Compile Include="Assets\Scripts\CalibrationInstructions.cs" />
+    <Compile Include="Assets\Scripts\CalibrationGuide.cs" />
+    <Compile Include="Assets\Scripts\GameplayGuide.cs" />
     <Compile Include="Assets\Scripts\ReferencePartVisibility.cs" />
     <Compile Include="Assets\Scripts\NetworkLauncher.cs" />
     <Compile Include="Assets\TutorialInfo\Scripts\Readme.cs" />
     <Compile Include="Assets\Scripts\PalmTransformation.cs" />
     <Compile Include="Assets\Scripts\NetworkPlayerMarkers.cs" />
+    <Compile Include="Assets\Scripts\InterfaceKioskStand.cs" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Assets\TextMesh Pro\Shaders\TMPro.cginc" />

@@ -2,8 +2,7 @@ using System;
 using Unity.Netcode;
 using UnityEngine;
 
-// Replicates calibration dots as world-space objects. Physical alignment still
-// depends on each headset completing the shared two-point calibration.
+// Shares calibration coordinates for diagnostics. Each headset renders only its own dots.
 public class CalibrationPreview : NetworkBehaviour
 {
     public struct State : INetworkSerializable, IEquatable<State>
@@ -36,7 +35,7 @@ public class CalibrationPreview : NetworkBehaviour
     private NetworkManager subscribedManager;
     private ulong joiningClientId;
     private float nextSend;
-    private Transform firstDot, secondDot, liveDot, joiningFirstDot, joiningSecondDot, joiningLiveDot;
+    private Transform firstDot, secondDot, joiningFirstDot, joiningSecondDot;
     private GameObject markerRoot;
     private Material appliedLocalMaterial;
     private State lastSent;
@@ -148,15 +147,12 @@ public class CalibrationPreview : NetworkBehaviour
 
     private void Draw(State host, State join, bool visible)
     {
-        // Both headsets render BOTH players' placed dots from the same network
-        // snapshots. Never mix an immediate local placed dot with an echoed one.
-        PlaceDot(firstDot, visible && host.Present && host.HasOrigin, host.Origin, hostMaterial);
-        PlaceDot(secondDot, visible && host.Present && host.HasDirection, host.Direction, hostMaterial);
-        PlaceDot(joiningFirstDot, visible && join.Present && join.HasOrigin, join.Origin, joiningMaterial);
-        PlaceDot(joiningSecondDot, visible && join.Present && join.HasDirection, join.Direction, joiningMaterial);
-        // Keep the wearer's hand cursor immediate; only the other cursor is replicated.
-        PlaceDot(liveDot, visible && !IsHost && host.Present && host.CursorVisible, host.Cursor, hostMaterial);
-        PlaceDot(joiningLiveDot, visible && IsHost && join.Present && join.CursorVisible, join.Cursor, joiningMaterial);
+        bool showHost = visible && IsHost && host.Present;
+        bool showJoiningPlayer = visible && !IsHost && join.Present;
+        PlaceDot(firstDot, showHost && host.HasOrigin, host.Origin, hostMaterial);
+        PlaceDot(secondDot, showHost && host.HasDirection, host.Direction, hostMaterial);
+        PlaceDot(joiningFirstDot, showJoiningPlayer && join.HasOrigin, join.Origin, joiningMaterial);
+        PlaceDot(joiningSecondDot, showJoiningPlayer && join.HasDirection, join.Direction, joiningMaterial);
     }
 
     private static void PlaceDot(Transform dot, bool visible, Vector3 position, Material material)
@@ -171,10 +167,8 @@ public class CalibrationPreview : NetworkBehaviour
     {
         if (firstDot != null) firstDot.gameObject.SetActive(visible);
         if (secondDot != null) secondDot.gameObject.SetActive(visible);
-        if (liveDot != null) liveDot.gameObject.SetActive(visible);
         if (joiningFirstDot != null) joiningFirstDot.gameObject.SetActive(visible);
         if (joiningSecondDot != null) joiningSecondDot.gameObject.SetActive(visible);
-        if (joiningLiveDot != null) joiningLiveDot.gameObject.SetActive(visible);
     }
 
     private void CreateDots()
@@ -183,10 +177,8 @@ public class CalibrationPreview : NetworkBehaviour
         markerRoot.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
         firstDot = CreateDot("Host Floor Point 1", 0.05f);
         secondDot = CreateDot("Host Floor Point 2", 0.05f);
-        liveDot = CreateDot("Host Moving Floor Dot", 0.025f);
         joiningFirstDot = CreateDot("Joining Player Floor Point 1", 0.04f);
         joiningSecondDot = CreateDot("Joining Player Floor Point 2", 0.04f);
-        joiningLiveDot = CreateDot("Joining Player Moving Floor Dot", 0.025f);
     }
 
     private Transform CreateDot(string label, float diameter)

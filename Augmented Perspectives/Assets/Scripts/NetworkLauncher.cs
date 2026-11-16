@@ -58,6 +58,7 @@ public class NetworkLauncher : MonoBehaviour
         discovery = new LanHostDiscovery();
         discovery.HostFound += ConnectDiscoveredHost;
         discovery.Failed += HandleDiscoveryFailure;
+        discovery.Diagnostic += message => Debug.Log($"[NetworkLauncher] [LAN] {message}");
         manager.LogLevel = Unity.Netcode.LogLevel.Developer;
         manager.OnClientConnectedCallback += HandleClientConnected;
         manager.OnClientDisconnectCallback += HandleClientDisconnected;
@@ -132,7 +133,8 @@ public class NetworkLauncher : MonoBehaviour
         }
         if (manager.IsListening || manager.IsClient || manager.IsServer)
         {
-            Debug.Log("[NetworkLauncher] Ignored repeated start request: networking is already running.");
+            SetStatus(manager.IsHost ? "Already hosting. Press Join on the other headset, or Disconnect / Cancel to change roles." :
+                "Already joining or connected. Use Disconnect / Cancel before starting another connection.");
             return false;
         }
         return true;

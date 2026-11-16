@@ -27,3 +27,12 @@ This is local-network discovery, not internet matchmaking. Both devices must be 
 References: [Microsoft UDP broadcast behaviour](https://learn.microsoft.com/en-us/dotnet/api/system.net.sockets.udpclient.enablebroadcast), [Unity Android Internet Access](https://docs.unity.com/en-us/engine/6000.3/script-reference/unityeditor/playersettings/android/forceinternetpermission).
 
 Compilation, discovery on a Quest hotspot, and the complete two-headset join/cancel flow have not been tested for this change. Install the same newly built APK on both headsets before using the new discovery protocol.
+## Discovery fallback and diagnostics
+
+If broadcasts do not reach the host, Join now also sends the same game-specific discovery request directly to neighbouring IPv4 addresses. Requests are limited to eight per 30 ms batch and repeat a round every five seconds while searching. Each interface contributes at most its local /24 range; smaller IPv4 subnets use their actual mask. The game never probes arbitrary ports: requests only target the configured discovery port. For larger networks, direct discovery covers the headset's local /24 range; broadcast discovery remains in parallel.
+
+On Android, ConnectivityManager LinkProperties supplies the active network's IPv4 address and prefix if managed networking information is incomplete. A legacy DHCP fallback is used only if no address is available. ACCESS_WIFI_STATE is included for that fallback. Addresses are learned at runtime, not stored in the scene.
+
+A reachable but full host now reports that separately. Repeated Host/Join presses report the current role and how to cancel. NetworkLogs include discovery startup, direct target count, first host request, host replies, and timeout query/reply totals. Expected UDP errors from non-host neighbouring devices do not abort the search.
+
+This improves discovery on networks that block broadcasts but allow direct peer traffic. It cannot bypass Wi-Fi client isolation or firewalls blocking both discovery and gameplay. The failure was reported as “No available host found”; no headset was attached when the fallback was added, so its cause and the new behaviour still need device validation. Build once and install the same APK on both headsets.

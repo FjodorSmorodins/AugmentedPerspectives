@@ -14,7 +14,10 @@ public class FloorPlayArea : MonoBehaviour
 
     [SerializeField] private bool autoCenterPlayer = true;
 
+    public Vector3 Dimensions => dimensions;
+
     private Mesh outlineMesh;
+    private Renderer outlineRenderer;
     private OVRDisplay display;
 
     private IEnumerator Start()
@@ -94,13 +97,15 @@ public class FloorPlayArea : MonoBehaviour
         AddStrip(vertices, triangles, 1, -x, x, z - width, z);
         AddStrip(vertices, triangles, 2, -x, -x + width, -z + width, z - width);
         AddStrip(vertices, triangles, 3, x - width, x, -z + width, z - width);
-        outlineMesh = new Mesh { name = "2m Floor Outline", vertices = vertices, triangles = triangles };
+        outlineMesh = new Mesh { name = "Floor Outline", vertices = vertices, triangles = triangles };
         outlineMesh.RecalculateNormals();
         outlineMesh.RecalculateBounds();
         var outline = new GameObject("Red Floor Outline");
         outline.transform.SetParent(transform, false);
         outline.AddComponent<MeshFilter>().sharedMesh = outlineMesh;
         var renderer = outline.AddComponent<MeshRenderer>();
+        outlineRenderer = renderer;
+        renderer.enabled = CalibrationLobby.CanPlay;
         renderer.sharedMaterial = lineMaterial;
         renderer.shadowCastingMode = ShadowCastingMode.Off;
         renderer.receiveShadows = false;
@@ -117,6 +122,11 @@ public class FloorPlayArea : MonoBehaviour
         int t = strip * 6;
         triangles[t] = v; triangles[t + 1] = v + 1; triangles[t + 2] = v + 2;
         triangles[t + 3] = v; triangles[t + 4] = v + 2; triangles[t + 5] = v + 3;
+    }
+
+    private void LateUpdate()
+    {
+        if (outlineRenderer != null) outlineRenderer.enabled = CalibrationLobby.CanPlay;
     }
 
     private void OnDrawGizmos()

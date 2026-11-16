@@ -10,6 +10,7 @@ public class NetworkGrabOwnership : NetworkBehaviour
     private AssemblePart part;
     private bool originalKinematic;
     private readonly NetworkVariable<bool> snapped = new(false);
+    private readonly NetworkVariable<uint> resetVersion = new(0);
 
     private void Awake()
     {
@@ -32,6 +33,7 @@ public class NetworkGrabOwnership : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         snapped.OnValueChanged += HandleSnapChanged;
+        resetVersion.OnValueChanged += HandleResetVersionChanged;
         part?.ApplyNetworkSnapState(snapped.Value);
         ApplyPhysicsAuthority();
         Debug.Log($"[NetworkGrab] Spawned {name}: local={NetworkManager.LocalClientId}, owner={OwnerClientId}");
@@ -42,6 +44,7 @@ public class NetworkGrabOwnership : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         snapped.OnValueChanged -= HandleSnapChanged;
+        resetVersion.OnValueChanged -= HandleResetVersionChanged;
         body.isKinematic = !CalibrationLobby.CanPlay || originalKinematic || grabbable.SelectingPointsCount > 0 ||
                            (part != null && part.IsLocked);
     }
@@ -61,7 +64,7 @@ public class NetworkGrabOwnership : NetworkBehaviour
         Debug.Log($"[NetworkGrab] Grab {name}: spawned={IsSpawned}, owner={OwnerClientId}");
         if (!IsSpawned || IsOwner)
             return;
-        RequestOwnershipRpc();
+        RequestOwnershipRpc(resetVersion.Value);
     }
 
     public void EndLocalGrab()
@@ -72,10 +75,11 @@ public class NetworkGrabOwnership : NetworkBehaviour
     }
 
     [Rpc(SendTo.Server, RequireOwnership = false)]
-    private void RequestOwnershipRpc(RpcParams rpcParams = default)
+    private void RequestOwnershipRpc(uint grabVersion, RpcParams rpcParams = default)
     {
         ulong requestingClientId = rpcParams.Receive.SenderClientId;
-        if ((part != null && (part.IsLocked || !part.CanClientGrab(requestingClientId))) ||
+        if (grabVersion != resetVersion.Value ||
+            (part != null && (part.IsLocked || !part.CanClientGrab(requestingClientId))) ||
             !NetworkManager.ConnectedClients.ContainsKey(requestingClientId))
             return;
         if (NetworkObject.OwnerClientId != requestingClientId)
@@ -88,13 +92,14 @@ public class NetworkGrabOwnership : NetworkBehaviour
     public void RequestSnap(Vector3 releasedPosition)
     {
         if (IsSpawned)
-            RequestSnapRpc(releasedPosition);
+            RequestSnapRpc(releasedPosition, resetVersion.Value);
     }
 
     [Rpc(SendTo.Server, RequireOwnership = false)]
-    private void RequestSnapRpc(Vector3 releasedPosition, RpcParams rpcParams = default)
+    private void RequestSnapRpc(Vector3 releasedPosition, uint grabVersion, RpcParams rpcParams = default)
     {
-        if (part == null || part.IsLocked || !part.CanClientGrab(rpcParams.Receive.SenderClientId) ||
+        if (grabVersion != resetVersion.Value || part == null || part.IsLocked ||
+            !part.CanClientGrab(rpcParams.Receive.SenderClientId) ||
             OwnerClientId != rpcParams.Receive.SenderClientId ||
             !part.IsWithinSnapDistance(releasedPosition))
             return;
@@ -107,10 +112,19 @@ public class NetworkGrabOwnership : NetworkBehaviour
         ApplyPhysicsAuthority();
     }
 
-    public void ResetNetworkSnap()
+    public void ResetLoosePart()
     {
-        if (IsSpawned && IsServer)
-            snapped.Value = false;
+        if (!IsSpawned || !IsServer || part == null || snapped.Value) return;
+        // Invalidate grab/release messages sent before this reset. Clients cancel
+        // their selections and receive the pose from the authoritative transform.
+        resetVersion.Value++;
+        if (!IsOwner) NetworkObject.ChangeOwnership(Unity.Netcode.NetworkManager.ServerClientId);
+        part.ReturnToStart();
+    }
+
+    private void HandleResetVersionChanged(uint previous, uint current)
+    {
+        if (!IsServer) part?.CancelGrabForReset();
     }
 
     protected override void OnOwnershipChanged(ulong previous, ulong current)

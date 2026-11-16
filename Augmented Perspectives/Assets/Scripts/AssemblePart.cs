@@ -27,10 +27,10 @@ public class AssemblePart : MonoBehaviour
     [SerializeField] private bool snapOnRelease = true;
     [SerializeField, Min(0f)] private float snapDistance = 0.4f;
 
-    [Header("Optional submission locking")]
+    [Header("Physics and grabbing")]
     [SerializeField] private Rigidbody partRigidbody;
 
-    [Tooltip("Assign Meta Grabbable/Grab Interactable behaviours here if they should be disabled after submission.")]
+    [Tooltip("Assign Meta Grabbable/Grab Interactable behaviours here to disable while a part is snapped or returning to its starting spot.")]
     [SerializeField] private Behaviour[] grabBehaviours = new Behaviour[0];
 
     private Vector3 startingPosition;
@@ -44,9 +44,11 @@ public class AssemblePart : MonoBehaviour
     private bool pendingSnap;
     private Vector3 releasedPosition;
 
-    public bool IsFrozenForSubmission { get; private set; }
+    private int resetGrabFrame = -1;
+    private bool ReturningToStart => resetGrabFrame == Time.frameCount;
+
     public bool IsSnapped { get; private set; }
-    public bool IsLocked => IsFrozenForSubmission || IsSnapped;
+    public bool IsLocked => IsSnapped;
 
     public float PositionError => Vector3.Distance(transform.position, TargetWorldPosition);
 
@@ -148,7 +150,7 @@ public class AssemblePart : MonoBehaviour
 
     // Visibility and grab permission use the same host/join audience rules.
     // The calibration lobby must release the parts before role-based grabbing begins.
-    public bool CanClientGrab(ulong clientId) => CalibrationLobby.CanPlay && (referenceVisibility == null ||
+    public bool CanClientGrab(ulong clientId) => CalibrationLobby.CanPlay && !ReturningToStart && (referenceVisibility == null ||
         !referenceVisibility.IsVisibleToRole(clientId == Unity.Netcode.NetworkManager.ServerClientId));
 
     private bool CanLocalPlayerGrab
@@ -191,7 +193,7 @@ public class AssemblePart : MonoBehaviour
 
     private void ApplyGrabPermissions()
     {
-        bool canGrab = CalibrationLobby.CanPlay && !IsLocked && CanLocalPlayerGrab;
+        bool canGrab = CalibrationLobby.CanPlay && !ReturningToStart && !IsLocked && CanLocalPlayerGrab;
         if (!canGrab)
             pendingSnap = false;
         for (int i = 0; i < grabBehaviours.Length; i++)
@@ -214,7 +216,7 @@ public class AssemblePart : MonoBehaviour
 
         // Check the released pose, before gravity or the SDK's throw can move the part.
         releasedPosition = transform.position;
-        pendingSnap = !IsLocked && CanLocalPlayerGrab && IsWithinSnapDistance(releasedPosition);
+        pendingSnap = !ReturningToStart && !IsLocked && CanLocalPlayerGrab && IsWithinSnapDistance(releasedPosition);
         Debug.Log($"[AssemblySnap] {name} released: distance={Vector3.Distance(releasedPosition, TargetWorldPosition):F3}m, " +
                   $"limit={snapDistance:F3}m, enabled={snapOnRelease}, referenceAssigned={referencePart != null}, " +
                   $"locked={IsLocked}, snapRequested={pendingSnap}, target={TargetWorldPosition:F3}", this);
@@ -268,19 +270,6 @@ public class AssemblePart : MonoBehaviour
         Debug.Log($"[AssemblySnap] {name} snapped to its ideal pose and locked.");
     }
 
-    public void FreezeForSubmission()
-    {
-        IsFrozenForSubmission = true;
-        pendingSnap = false;
-        ApplyLockState();
-    }
-
-    public void UnfreezeAfterSubmission()
-    {
-        IsFrozenForSubmission = false;
-        ApplyLockState(); // A snapped part stays locked until Reset.
-    }
-
     private void ApplyLockState()
     {
         ApplyGrabPermissions();
@@ -300,15 +289,19 @@ public class AssemblePart : MonoBehaviour
         }
     }
 
-    public void ResetPart()
+    public void CancelGrabForReset()
     {
-        IsFrozenForSubmission = true;
-        ApplyLockState(); // Cancel any active grab before restoring the starting pose.
-        pendingSnap = false;
-        IsSnapped = false;
-        IsFrozenForSubmission = false;
-        GetComponent<NetworkGrabOwnership>()?.ResetNetworkSnap();
-        ApplyLockState();
+        // Leave interactions disabled for the rest of this frame so the SDK can
+        // finish cancelling selection before a new grab is allowed.
+        resetGrabFrame = Time.frameCount;
+        ApplyGrabPermissions();
+    }
+
+    public void ReturnToStart()
+    {
+        if (IsSnapped) return;
+        CancelGrabForReset();
+        ClearVelocity();
         transform.SetPositionAndRotation(startingPosition, startingRotation);
         if (partRigidbody != null)
         {
@@ -321,7 +314,7 @@ public class AssemblePart : MonoBehaviour
     private void TeleportNetworkTransform()
     {
         var networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
-        if (networkTransform != null && networkTransform.IsSpawned && networkTransform.IsOwner)
+        if (networkTransform != null && networkTransform.IsSpawned && networkTransform.CanCommitToTransform)
             networkTransform.Teleport(transform.position, transform.rotation, transform.localScale);
     }
 }

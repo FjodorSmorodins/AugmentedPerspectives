@@ -1,3 +1,4 @@
+using System;
 using System.Collections;
 using System.Collections.Generic;
 using TMPro;
@@ -13,7 +14,8 @@ public class CalibrationLobby : NetworkBehaviour
 {
     public static CalibrationLobby Instance { get; private set; }
     public static bool CanPlay => Instance == null ||
-        (Instance.IsSpawned && Instance.started.Value && Instance.localConfirmed);
+        (Instance.IsSpawned && Instance.checkpoint.Value.Progress == CalibrationGuide.Progress.Confirmed &&
+         Instance.localConfirmed && Instance.layoutApplied);
 
     [SerializeField] private NetworkLauncher networkLauncher;
     [SerializeField] private Transform playArea;
@@ -24,27 +26,45 @@ public class CalibrationLobby : NetworkBehaviour
     [SerializeField] private Transform[] gameVisualRoots;
     [SerializeField] private Material markerMaterial;
     [SerializeField] private Vector3 gameForward = Vector3.left;
-    [SerializeField, Min(0.1f)] private float minimumMarkSpacing = 0.5f;
 
-    private readonly NetworkVariable<bool> started = new(false);
-    private readonly NetworkVariable<int> readyCount = new(0);
-    private readonly HashSet<ulong> readyClients = new();
+    public struct Checkpoint : INetworkSerializable, IEquatable<Checkpoint>
+    {
+        public CalibrationGuide.Progress Progress;
+        public uint Revision;
+
+        public void NetworkSerialize<T>(BufferSerializer<T> serializer) where T : IReaderWriter
+        {
+            serializer.SerializeValue(ref Progress);
+            serializer.SerializeValue(ref Revision);
+        }
+
+        public bool Equals(Checkpoint other) => Progress == other.Progress && Revision == other.Revision;
+    }
+
+    private readonly NetworkVariable<Checkpoint> checkpoint = new(default);
+    private readonly CalibrationSession session = new();
+    private bool layoutApplied;
+    private const float FirstPointHoldSeconds = 3f;
+    private Transform holdSource;
+    private float holdStarted;
     private readonly List<Renderer> gameRenderers = new();
     private readonly List<bool> originalRendererEnabled = new();
     private NetworkManager subscribedManager;
     private OVRDisplay display;
-    private TextMeshProUGUI instructions;
-    private Button confirmButton;
-    private Button selectButton;
-    private Button instructionsButton;
-    private GameObject calibrationUI;
-    private Button[] lobbyButtons;
+    private readonly CalibrationGuide guide = new();
+    private CalibrationInstructions guidance;
+    private GameplayGuide gameplayGuide;
+    private CalibrationLayoutPreview layoutPreview;
+    private bool localConfirmed => guide.Confirmed;
+    private bool hasOrigin => guide.HasOrigin;
+    private bool hasDirection => guide.HasDirection;
+    private bool selecting => guide.Selecting;
+    private Vector3 layoutForward;
     private Transform originMarker, directionMarker, cursor;
     private LineRenderer pointerLine;
     private OVRHand[] hands;
     private readonly Dictionary<OVRHand, bool> previousPinches = new();
     private OVRInput.Controller preferredController = OVRInput.Controller.RTouch;
-    private bool localConfirmed, hasOrigin, hasDirection, selecting;
     private float acceptInputAfter;
     private Vector3 origin, directionPoint;
     private string selectionError;
@@ -55,13 +75,10 @@ public class CalibrationLobby : NetworkBehaviour
     private Vector3 previewCursor;
     private bool previewCursorVisible;
     private bool replicatedPlacedMarkers;
-    private CalibrationPreview sharedDots;
-    private CalibrationInstructions introduction;
 
     private void Awake()
     {
         Instance = this;
-        sharedDots = GetComponent<CalibrationPreview>();
         foreach (Transform root in gameVisualRoots)
         {
             if (root == null) continue;
@@ -97,12 +114,13 @@ public class CalibrationLobby : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         subscribedManager = NetworkManager;
-        introduction?.BeginSession();
+        ResetGuide();
+        gameplayGuide?.ResetSession();
         if (IsServer)
         {
-            readyClients.Clear();
-            readyCount.Value = 0;
-            started.Value = false;
+            session.Reset();
+            foreach (ulong clientId in NetworkManager.ConnectedClientsIds) session.Connect(clientId);
+            PublishCheckpoint();
             subscribedManager.OnClientConnectedCallback += ClientConnected;
             subscribedManager.OnClientDisconnectCallback += ClientDisconnected;
         }
@@ -111,11 +129,9 @@ public class CalibrationLobby : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         UnsubscribeNetwork();
-        introduction?.EndSession();
-        localConfirmed = false;
-        selecting = hasOrigin = hasDirection = false;
+        ResetGuide();
         lastPlaying = null;
-        if (calibrationUI != null) PlaceLobbyInterface();
+        if (guidance != null) PlaceLobbyInterface();
         SetGameVisible(false);
     }
 
@@ -127,32 +143,41 @@ public class CalibrationLobby : NetworkBehaviour
         subscribedManager = null;
     }
 
-    private void ClientConnected(ulong clientId) => RecalculateReadiness();
+    private void ClientConnected(ulong clientId)
+    {
+        session.Connect(clientId);
+        PublishCheckpoint();
+    }
+
     private void ClientDisconnected(ulong clientId)
     {
-        readyClients.Remove(clientId);
-        // Pause immediately, even before Netcode removes the disconnected client.
-        started.Value = false;
-        readyCount.Value = readyClients.Count;
+        session.Disconnect(clientId);
+        PublishCheckpoint();
     }
 
-    [Rpc(SendTo.Server, RequireOwnership = false)]
-    private void SetReadyRpc(bool ready, RpcParams rpcParams = default)
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    private void SetProgressRpc(CalibrationGuide.Progress progress, uint revision, RpcParams rpcParams = default)
     {
-        ulong clientId = rpcParams.Receive.SenderClientId;
-        if (!NetworkManager.ConnectedClients.ContainsKey(clientId)) return;
-        if (ready) readyClients.Add(clientId);
-        else readyClients.Remove(clientId);
-        RecalculateReadiness();
+        if (session.SetProgress(rpcParams.Receive.SenderClientId, progress, revision)) PublishCheckpoint();
     }
 
-    private void RecalculateReadiness()
+    private void PublishCheckpoint()
     {
-        readyCount.Value = readyClients.Count;
-        bool allReady = NetworkManager.ConnectedClientsIds.Count >= 2;
-        foreach (ulong clientId in NetworkManager.ConnectedClientsIds)
-            allReady &= readyClients.Contains(clientId);
-        started.Value = allReady;
+        checkpoint.Value = new Checkpoint { Progress = session.SharedProgress, Revision = session.Revision };
+    }
+
+    private void SyncGuide()
+    {
+        Checkpoint current = checkpoint.Value;
+        var previous = guide.Step;
+        guide.UpdateSharedProgress(current.Progress, current.Revision);
+        if (guide.Step != previous)
+        {
+            holdSource = null;
+            selectionError = null;
+            acceptInputAfter = Time.unscaledTime + 0.5f;
+            LogGuideStep();
+        }
     }
 
     private void Update()
@@ -161,6 +186,13 @@ public class CalibrationLobby : NetworkBehaviour
         {
             display = OVRManager.display;
             display.RecenteredPose += RestartCalibration;
+        }
+        bool connected = IsSpawned && !NetworkManager.ShutdownInProgress;
+        if (connected)
+        {
+            SyncGuide();
+            if (!layoutApplied && localConfirmed && checkpoint.Value.Progress == CalibrationGuide.Progress.Confirmed)
+                ApplyAlignment();
         }
         bool playing = CanPlay;
         if (lastPlaying != playing)
@@ -174,20 +206,19 @@ public class CalibrationLobby : NetworkBehaviour
             }
             else if (canvasPlaced) PlaceLobbyInterface();
         }
-        if (instructions == null) return;
-        if (playing && introduction != null && introduction.IsOpen) introduction.Close();
-        bool reading = introduction != null && introduction.IsOpen && IsSpawned;
-        bool readComplete = introduction != null && introduction.Completed;
-        calibrationUI.SetActive(!playing && !reading);
-        connectionPanel.gameObject.SetActive(!reading);
-        confirmButton.interactable = readComplete && !reading && IsSpawned && !NetworkManager.ShutdownInProgress && hasDirection && !localConfirmed;
-        selectButton.interactable = readComplete && !reading && IsSpawned && !NetworkManager.ShutdownInProgress && !playing;
-        instructionsButton.interactable = IsSpawned && !NetworkManager.ShutdownInProgress && !playing;
-        instructions.text = StatusMessage() + (sharedDots != null ? sharedDots.ComparisonText() : "");
-        bool showOrigin = !replicatedPlacedMarkers && !playing && hasOrigin;
+        if (guidance == null) return;
+        // The gameplay guide replaces Host/Join once the session has started.
+        connectionPanel.gameObject.SetActive(!connected);
+        gameplayGuide.Show(playing);
+        UpdatePlacementCursor(connected && !playing && selecting);
+        guidance.Show(guide, connected && !playing, connected && !playing && Time.unscaledTime >= acceptInputAfter,
+            selectionError);
+        bool showOrigin = !replicatedPlacedMarkers && connected && !playing && hasOrigin;
         originMarker.gameObject.SetActive(showOrigin);
         directionMarker.gameObject.SetActive(showOrigin && hasDirection);
-        UpdatePlacementCursor(!reading && readComplete && !playing && IsSpawned && !NetworkManager.ShutdownInProgress && selecting && !localConfirmed && !hasDirection);
+        bool followingFirstDot = guide.Step == CalibrationGuide.Stage.PlaceFirst && previewCursorVisible;
+        layoutPreview.Show(connected && !playing && (hasOrigin || followingFirstDot),
+            followingFirstDot ? previewCursor : origin, layoutForward);
     }
 
     private void SetGameVisible(bool visible)
@@ -200,13 +231,22 @@ public class CalibrationLobby : NetworkBehaviour
 
     public void CancelLocalCalibration()
     {
-        introduction?.EndSession();
-        localConfirmed = false;
-        selecting = hasOrigin = hasDirection = previewCursorVisible = false;
-        selectionError = null;
+        ResetGuide();
         lastPlaying = null;
-        if (calibrationUI != null) PlaceLobbyInterface();
+        if (guidance != null) PlaceLobbyInterface();
         SetGameVisible(false);
+    }
+
+    private void ResetGuide()
+    {
+        guide.Restart();
+        layoutApplied = false;
+        holdSource = null;
+        LogGuideStep();
+        previewCursorVisible = false;
+        selectionError = null;
+        acceptInputAfter = Time.unscaledTime + 0.5f;
+        layoutPreview?.Hide();
     }
 
     private void DisconnectOrCancel()
@@ -218,29 +258,76 @@ public class CalibrationLobby : NetworkBehaviour
 
     public void RestartCalibration()
     {
-        if (introduction != null && !introduction.Completed)
-        {
-            if (IsSpawned) introduction.Open();
-            return;
-        }
-        localConfirmed = false;
-        hasOrigin = hasDirection = false;
-        selecting = IsSpawned;
-        selectionError = null;
-        acceptInputAfter = Time.unscaledTime + 0.5f;
-        previewCursorVisible = false;
-        if (IsSpawned) SetReadyRpc(false);
+        ResetGuide();
+        if (IsSpawned && !NetworkManager.ShutdownInProgress)
+            SetProgressRpc(guide.LocalProgress, checkpoint.Value.Revision);
         PlaceLobbyInterface();
+        SetGameVisible(false);
     }
 
-    private void ConfirmCalibration()
+    private void LogGuideStep()
     {
-        if (!IsSpawned || !hasDirection || localConfirmed || introduction == null ||
-            !introduction.Completed || introduction.IsOpen) return;
-        Vector3 measuredForward = Vector3.ProjectOnPlane(directionPoint - origin, Vector3.up);
+        Debug.Log($"[CalibrationInstructions] Step={guide.Step}, first={hasOrigin}, second={hasDirection}, ready={localConfirmed}");
+    }
+
+    private bool AcceptGuideAction()
+    {
+        if (!IsSpawned || NetworkManager.ShutdownInProgress ||
+            checkpoint.Value.Progress == CalibrationGuide.Progress.Confirmed) return false;
+        SyncGuide();
+        if (Time.unscaledTime < acceptInputAfter) return false;
+        // One action per pinch, including duplicate Meta UI clicks and floor input.
+        acceptInputAfter = Time.unscaledTime + 0.5f;
+        selectionError = null;
+        return true;
+    }
+
+    private void GuidePrimary()
+    {
+        if (!AcceptGuideAction() || !guide.Advance()) return;
+        PrepareFirstDotPreview();
+        if (localConfirmed) SetProgressRpc(guide.LocalProgress, checkpoint.Value.Revision);
+        LogGuideStep();
+    }
+
+    private void ChangePosition()
+    {
+        if (!AcceptGuideAction() || !guide.ChangePosition()) return;
+        layoutApplied = false;
+        holdSource = null;
+        previewCursorVisible = false;
+        PrepareFirstDotPreview();
+        SetProgressRpc(guide.LocalProgress, checkpoint.Value.Revision);
+        LogGuideStep();
+    }
+
+    private void ChangeRotation()
+    {
+        if (!AcceptGuideAction() || !guide.ChangeRotation()) return;
+        layoutApplied = false;
+        SetProgressRpc(guide.LocalProgress, checkpoint.Value.Revision);
+        LogGuideStep();
+    }
+
+    private void PrepareFirstDotPreview()
+    {
+        if (guide.Step != CalibrationGuide.Stage.PlaceFirst) return;
+        Vector3 headForward = cameraRig != null && cameraRig.centerEyeAnchor != null
+            ? cameraRig.centerEyeAnchor.forward : gameForward;
+        layoutForward = Vector3.ProjectOnPlane(headForward, Vector3.up);
+        if (layoutForward.sqrMagnitude < 0.001f)
+            layoutForward = Vector3.ProjectOnPlane(gameForward, Vector3.up);
+        // Capture the current scene and keep its facing steady while the player
+        // slides it around. The same preview becomes fixed when dot 1 is placed.
+        layoutPreview.Rebuild();
+    }
+
+    private void ApplyAlignment()
+    {
+        if (cameraRig == null) return;
         Vector3 desiredForward = Vector3.ProjectOnPlane(gameForward, Vector3.up);
-        if (measuredForward.magnitude < minimumMarkSpacing || desiredForward.sqrMagnitude < 0.001f) return;
-        float yaw = Vector3.SignedAngle(measuredForward, desiredForward, Vector3.up);
+        if (desiredForward.sqrMagnitude < 0.001f) return;
+        float yaw = Vector3.SignedAngle(layoutForward, desiredForward, Vector3.up);
         Quaternion correction = Quaternion.AngleAxis(yaw, Vector3.up);
         Transform rigRoot = cameraRig.transform;
         // Map the selected origin onto the play-area centre. Transform the rig,
@@ -252,10 +339,8 @@ public class CalibrationLobby : NetworkBehaviour
         originMarker.position = origin + Vector3.up * 0.015f;
         directionMarker.position = directionPoint + Vector3.up * 0.015f;
         Physics.SyncTransforms();
-        localConfirmed = true;
-        selecting = false;
-        connectionCanvas.SetPositionAndRotation(savedCanvasPosition, savedCanvasRotation);
-        SetReadyRpc(true);
+        layoutForward = correction * layoutForward;
+        layoutApplied = true;
         Debug.Log($"[CalibrationLobby] Origin confirmed; yaw correction {yaw:F1} degrees.");
     }
 
@@ -264,11 +349,21 @@ public class CalibrationLobby : NetworkBehaviour
         previewCursorVisible = false;
         pointerLine.enabled = false;
         cursor.gameObject.SetActive(false);
-        if (!enabled || cameraRig == null) return;
-        if (!TryPlacementInput(out Vector3 handPosition, out Ray uiRay, out bool hasUIRay, out bool pressed)) return;
+        if (!enabled || cameraRig == null)
+        {
+            holdSource = null;
+            return;
+        }
+        if (!TryPlacementInput(out Transform inputSource, out Ray uiRay, out bool hasUIRay, out bool pressed, out bool held))
+        {
+            holdSource = null;
+            selectionError = "Raise your hand or controller to show the dot.";
+            return;
+        }
 
         // Follow the tracked hand/controller horizontally. Its height and aim do
         // not affect the dot: both marks stay on the same tracking-floor plane.
+        Vector3 handPosition = inputSource.position;
         Vector3 point = new Vector3(handPosition.x, playArea.position.y, handPosition.z);
         Vector3 visiblePoint = point + Vector3.up * 0.015f;
         previewCursor = point;
@@ -278,26 +373,58 @@ public class CalibrationLobby : NetworkBehaviour
         pointerLine.SetPosition(1, visiblePoint);
         cursor.gameObject.SetActive(true);
         cursor.position = visiblePoint;
-        if (!pressed || Time.unscaledTime < acceptInputAfter || (hasUIRay && HitsInterface(uiRay))) return;
-        if (!hasOrigin)
+        bool overInterface = hasUIRay && HitsInterface(uiRay);
+        bool placingFirst = guide.Step == CalibrationGuide.Stage.PlaceFirst;
+        Vector3 offset = Vector3.ProjectOnPlane(point - origin, Vector3.up);
+        float distance = offset.magnitude;
+        bool canPlace = placingFirst || distance > 0f;
+        // Normalize explicitly so Unity's normalization epsilon does not erase a short offset.
+        if (!placingFirst && canPlace && !overInterface)
+            layoutForward = offset / distance;
+        selectionError = null;
+        if (Time.unscaledTime < acceptInputAfter || overInterface || !canPlace)
         {
+            holdSource = null;
+            return;
+        }
+        if (placingFirst)
+        {
+            if (pressed)
+            {
+                holdSource = inputSource;
+                holdStarted = Time.unscaledTime;
+            }
+            if (!held || holdSource != inputSource)
+            {
+                holdSource = null;
+                return;
+            }
+            float remaining = FirstPointHoldSeconds - (Time.unscaledTime - holdStarted);
+            if (remaining > 0f)
+            {
+                selectionError = $"Keep holding ({Mathf.CeilToInt(remaining)} s)";
+                return;
+            }
+            holdSource = null;
             origin = point;
-            hasOrigin = true;
             originMarker.position = visiblePoint;
         }
-        else if (Vector3.Distance(origin, point) < minimumMarkSpacing)
-            selectionError = "Direction mark is too close. Move your hand farther away.";
         else
         {
+            if (!pressed) return;
             directionPoint = point;
-            hasDirection = true;
             directionMarker.position = visiblePoint;
-            selectionError = null;
         }
-        acceptInputAfter = Time.unscaledTime + 0.4f;
+        guide.PlacePoint();
+        SetProgressRpc(guide.LocalProgress, checkpoint.Value.Revision);
+        LogGuideStep();
+        previewCursorVisible = false;
+        acceptInputAfter = Time.unscaledTime + 0.5f;
+        pointerLine.enabled = false;
+        cursor.gameObject.SetActive(false);
     }
 
-    // Share actual game-world floor coordinates for the other headset to render.
+    // Share floor coordinates with the calibration diagnostics component.
     public CalibrationPreview.State CapturePreview()
     {
         return new CalibrationPreview.State
@@ -330,9 +457,10 @@ public class CalibrationLobby : NetworkBehaviour
         if (pointerLine != null) pointerLine.sharedMaterial = material;
     }
 
-    private bool TryPlacementInput(out Vector3 position, out Ray uiRay, out bool hasUIRay, out bool pressed)
+    private bool TryPlacementInput(out Transform inputSource, out Ray uiRay, out bool hasUIRay, out bool pressed, out bool held)
     {
-        position = default;
+        inputSource = null;
+        held = false;
         uiRay = default;
         hasUIRay = false;
         pressed = false;
@@ -351,10 +479,11 @@ public class CalibrationLobby : NetworkBehaviour
                 ? cameraRig.rightControllerAnchor : cameraRig.leftControllerAnchor;
             if (anchor != null)
             {
-                position = anchor.position;
+                inputSource = anchor;
                 uiRay = new Ray(anchor.position, anchor.forward);
                 hasUIRay = true;
                 pressed = controller == OVRInput.Controller.RTouch ? rightPressed : leftPressed;
+                held = OVRInput.Get(OVRInput.Button.PrimaryIndexTrigger, controller);
                 return true;
             }
         }
@@ -375,13 +504,14 @@ public class CalibrationLobby : NetworkBehaviour
             {
                 placementHand = hand;
                 pressed = down;
+                held = pinch;
             }
         }
         if (placementHand == null) return false;
         Transform handAnchor = placementHand.GetHand() == OVRPlugin.Hand.HandLeft
             ? cameraRig.leftHandAnchor : cameraRig.rightHandAnchor;
         if (handAnchor == null) return false;
-        position = handAnchor.position;
+        inputSource = handAnchor;
         hasUIRay = placementHand.IsPointerPoseValid;
         if (hasUIRay) uiRay = new Ray(placementHand.PointerPose.position, placementHand.PointerPose.forward);
         return true;
@@ -389,29 +519,11 @@ public class CalibrationLobby : NetworkBehaviour
 
     private bool HitsInterface(Ray ray)
     {
-        // A pinch aimed at a lobby button should only activate that button.
+        // A pinch aimed anywhere at the screen is a UI gesture, not a floor dot.
         Plane plane = new Plane(connectionCanvas.forward, connectionCanvas.position);
-        if (!plane.Raycast(ray, out float distance) || distance >= 4f || lobbyButtons == null) return false;
+        if (!plane.Raycast(ray, out float distance) || distance >= 4f) return false;
         Vector3 hit = ray.GetPoint(distance);
-        foreach (Button button in lobbyButtons)
-        {
-            if (button == null || !button.isActiveAndEnabled || !button.interactable) continue;
-            var rect = button.transform as RectTransform;
-            if (rect != null && rect.rect.Contains((Vector2)rect.InverseTransformPoint(hit))) return true;
-        }
-        return false;
-    }
-
-    private string StatusMessage()
-    {
-        if (!IsSpawned) return "LOBBY\nChoose Host or Join above.\nBoth players must use the SAME two physical floor marks.";
-        if (localConfirmed) return $"POSITION CONFIRMED\nReady: {readyCount.Value}/2 players\nWaiting for both players to confirm...";
-        if (!selecting) return "CALIBRATION\nPress Set floor marks. Use the SAME origin and direction marks on both headsets.";
-        if (hasDirection) return "CHECK YOUR MARKS\nBoth floor points selected.\nPress Confirm position, or Set floor marks to retry.";
-        return (hasOrigin
-            ? "2. SELECT DIRECTION\nMove your right hand over the second floor mark, at least 50 cm away. Pinch to place."
-            : "1. SELECT ORIGIN\nMove your right hand over the shared centre mark. The dot stays at floor height. Pinch to place.") +
-            (string.IsNullOrEmpty(selectionError) ? "" : "\n" + selectionError);
+        return connectionCanvas.rect.Contains((Vector2)connectionCanvas.InverseTransformPoint(hit));
     }
 
     private void PlaceLobbyInterface()
@@ -425,35 +537,18 @@ public class CalibrationLobby : NetworkBehaviour
         canvasPlaced = true;
     }
 
-    private void ContinueAfterInstructions()
-    {
-        if (!IsSpawned || NetworkManager.ShutdownInProgress) return;
-        if (!selecting && !hasOrigin && !localConfirmed) RestartCalibration();
-        // Do not treat the Continue-button pinch as a floor placement.
-        acceptInputAfter = Time.unscaledTime + 0.5f;
-    }
-
-    private void OpenInstructions()
-    {
-        if (IsSpawned && !NetworkManager.ShutdownInProgress) introduction?.Open();
-    }
-
     private void CreateInterface()
     {
         connectionCanvas.sizeDelta = new Vector2(600f, 850f);
         connectionPanel.anchoredPosition = new Vector2(0f, 180f);
-        calibrationUI = new GameObject("Calibration Controls", typeof(RectTransform));
-        calibrationUI.transform.SetParent(connectionCanvas, false);
-        instructions = CreateText(calibrationUI.transform, "Calibration Instructions", new Vector2(0f, -30f), new Vector2(520f, 185f));
-        instructions.fontSize = 23f;
-        confirmButton = CreateButton("Confirm position", new Vector2(0f, -175f), ConfirmCalibration);
-        selectButton = CreateButton("Set floor marks / Retry", new Vector2(0f, -245f), RestartCalibration);
-        instructionsButton = CreateButton("Instructions", new Vector2(0f, -315f), OpenInstructions);
+        guidance = gameObject.AddComponent<CalibrationInstructions>();
+        guidance.Initialize(connectionCanvas, GuidePrimary, ChangePosition, ChangeRotation);
+        gameplayGuide = gameObject.AddComponent<GameplayGuide>();
+        gameplayGuide.Initialize(connectionCanvas, GetComponent<AssemblyManager>());
+        layoutPreview = gameObject.AddComponent<CalibrationLayoutPreview>();
+        layoutPreview.Initialize(playArea, gameVisualRoots, gameForward,
+            cameraRig != null ? cameraRig.centerEyeAnchor : null, markerMaterial);
         CreateButton("Disconnect / Cancel", new Vector2(0f, -380f), DisconnectOrCancel, connectionCanvas);
-        introduction = gameObject.AddComponent<CalibrationInstructions>();
-        introduction.Initialize(connectionCanvas, playArea, gameVisualRoots, gameForward, ContinueAfterInstructions);
-        if (IsSpawned) introduction.BeginSession();
-        lobbyButtons = connectionCanvas.GetComponentsInChildren<Button>(true);
     }
 
     private TextMeshProUGUI CreateText(Transform parent, string label, Vector2 position, Vector2 size)
@@ -462,6 +557,7 @@ public class CalibrationLobby : NetworkBehaviour
         go.layer = connectionCanvas.gameObject.layer;
         go.transform.SetParent(parent, false);
         var text = go.GetComponent<TextMeshProUGUI>();
+        text.rectTransform.anchorMin = text.rectTransform.anchorMax = new Vector2(0.5f, 0.5f);
         text.rectTransform.anchoredPosition = position;
         text.rectTransform.sizeDelta = size;
         text.alignment = TextAlignmentOptions.Center;
@@ -474,8 +570,9 @@ public class CalibrationLobby : NetworkBehaviour
     {
         var go = new GameObject(label, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image), typeof(Button));
         go.layer = connectionCanvas.gameObject.layer;
-        go.transform.SetParent(parent != null ? parent : calibrationUI.transform, false);
+        go.transform.SetParent(parent != null ? parent : connectionCanvas, false);
         var rect = go.GetComponent<RectTransform>();
+        rect.anchorMin = rect.anchorMax = new Vector2(0.5f, 0.5f);
         rect.anchoredPosition = position;
         rect.sizeDelta = new Vector2(330f, 52f);
         var image = go.GetComponent<Image>();
@@ -524,6 +621,9 @@ public class CalibrationLobby : NetworkBehaviour
         UnsubscribeNetwork();
         if (display != null) display.RecenteredPose -= RestartCalibration;
         if (Instance == this) Instance = null;
+        if (guidance != null) Destroy(guidance);
+        if (gameplayGuide != null) Destroy(gameplayGuide);
+        if (layoutPreview != null) Destroy(layoutPreview);
         base.OnDestroy();
     }
 }

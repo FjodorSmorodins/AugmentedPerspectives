@@ -11,19 +11,30 @@ public class AssemblyManager : NetworkBehaviour
     [SerializeField] private TMP_Text scoreText;
     [SerializeField] private bool showLiveScore = true;
 
-    [Header("Success")]
-    [SerializeField, Range(0f, 100f)] private float successThreshold = 85f;
     private bool hasReachedSuccess;
-    private bool awaitingNetworkReset;
 
     // The server/host writes these values.
     // Every connected player receives them.
     private readonly NetworkVariable<float> networkScore = new(0f);
-    private readonly NetworkVariable<bool> networkSubmitted = new(false);
     private readonly NetworkVariable<bool> networkSuccess = new(false);
-    private bool localSubmitted;
-    private float localScore;
-    private bool Submitted => IsSpawned ? networkSubmitted.Value : localSubmitted;
+
+    public int TotalPartCount => parts == null ? 0 : parts.Length;
+
+    public int SnappedPartCount
+    {
+        get
+        {
+            int count = 0;
+            if (parts != null)
+                foreach (AssemblePart part in parts)
+                    if (part != null && part.IsSnapped) count++;
+            return count;
+        }
+    }
+
+    // Missing references must never count as snapped parts.
+    public bool AllPartsSnapped => TotalPartCount > 0 && SnappedPartCount == TotalPartCount;
+    public bool IsComplete => AllPartsSnapped && (!IsSpawned || networkSuccess.Value);
 
     public float OverallScore
     {
@@ -53,148 +64,74 @@ public class AssemblyManager : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         networkScore.OnValueChanged += OnNetworkScoreChanged;
-        networkSubmitted.OnValueChanged += OnSubmittedChanged;
         networkSuccess.OnValueChanged += OnSuccessChanged;
         hasReachedSuccess = false;
 
-        ApplySubmittedState(networkSubmitted.Value);
         RefreshScoreDisplay();
     }
 
     public override void OnNetworkDespawn()
     {
         networkScore.OnValueChanged -= OnNetworkScoreChanged;
-        networkSubmitted.OnValueChanged -= OnSubmittedChanged;
         networkSuccess.OnValueChanged -= OnSuccessChanged;
     }
 
     private void Update()
     {
         if (!CalibrationLobby.CanPlay) return;
-        if (IsSpawned && IsServer && !Submitted)
+        if (IsSpawned && IsServer)
         {
             float accuracy = OverallScore;
             if (Mathf.Abs(networkScore.Value - accuracy) >= 0.1f ||
-                (accuracy >= successThreshold && !networkSuccess.Value))
+                (AllPartsSnapped && !networkSuccess.Value))
                 networkScore.Value = accuracy;
-            if (accuracy >= successThreshold)
-                networkSuccess.Value = true;
+            networkSuccess.Value = AllPartsSnapped;
         }
         CheckForSuccess();
-        if (showLiveScore && !Submitted)
+        if (showLiveScore)
             RefreshScoreDisplay();
     }
 
-    // Connect the Submit button to this method.
-    public void RequestSubmit()
-    {
-        if (!CalibrationLobby.CanPlay) return;
-        if (Submitted)
-            return;
-        if (!IsSpawned)
-        {
-            localScore = OverallScore;
-            localSubmitted = true;
-            ApplySubmittedState(true);
-            RefreshScoreDisplay();
-            return;
-        }
-        SubmitRpc();
-    }
-
-    [Rpc(SendTo.Server, RequireOwnership = false)]
-    private void SubmitRpc()
-    {
-        if (!CalibrationLobby.CanPlay) return;
-        // This code executes on the host/server.
-        if (networkSubmitted.Value)
-            return;
-
-        networkScore.Value = OverallScore;
-        if (networkScore.Value >= successThreshold)
-            networkSuccess.Value = true;
-        networkSubmitted.Value = true;
-    }
-
-    // Connect the Reset button to this method.
     public void RequestReset()
     {
         if (!CalibrationLobby.CanPlay) return;
-        if (!IsSpawned)
-        {
-            ResetParts();
-            localSubmitted = false;
-            localScore = 0f;
-            RefreshScoreDisplay();
-            return;
-        }
-        ResetRpc();
+        if (IsSpawned) ResetRpc();
+        else ResetLooseParts();
     }
 
-    [Rpc(SendTo.Server, RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void ResetRpc()
     {
         if (!CalibrationLobby.CanPlay) return;
-        networkSuccess.Value = false;
-        ResetParts();
-
-        networkScore.Value = 0f;
-        networkSuccess.Value = false;
-        networkSubmitted.Value = false;
-        ResetRemotePartsRpc();
+        ResetLooseParts();
+        networkScore.Value = OverallScore;
     }
 
-    [Rpc(SendTo.NotServer)]
-    private void ResetRemotePartsRpc()
+    private void ResetLooseParts()
     {
-        awaitingNetworkReset = networkSuccess.Value;
-        hasReachedSuccess = false;
-        GetComponent<AssemblySuccessFeedback>()?.ResetFeedback();
+        if (parts == null) return;
         foreach (AssemblePart part in parts)
-            if (part != null)
-                part.ResetPart();
+        {
+            if (part == null || part.IsSnapped) continue;
+            if (part.TryGetComponent(out NetworkGrabOwnership ownership) && ownership.IsSpawned)
+                ownership.ResetLoosePart();
+            else
+                part.ReturnToStart();
+        }
         RefreshScoreDisplay();
     }
+
+    public void ResetAssembly() => RequestReset();
 
     private void OnSuccessChanged(bool previous, bool current)
     {
         if (!current)
         {
-            awaitingNetworkReset = false;
             hasReachedSuccess = false;
             GetComponent<AssemblySuccessFeedback>()?.ResetFeedback();
         }
         RefreshScoreDisplay();
     }
-
-    private void ResetParts()
-    {
-        hasReachedSuccess = false;
-        GetComponent<AssemblySuccessFeedback>()?.ResetFeedback();
-        foreach (AssemblePart part in parts)
-        {
-            if (part == null)
-                continue;
-
-            NetworkObject partNetworkObject =
-                part.GetComponent<NetworkObject>();
-
-            if (partNetworkObject != null &&
-                partNetworkObject.IsSpawned &&
-                partNetworkObject.OwnerClientId !=
-                    NetworkManager.ServerClientId)
-            {
-                partNetworkObject.ChangeOwnership(
-                    NetworkManager.ServerClientId);
-            }
-
-            // Reset locally in offline mode, or on the server in a network session.
-            part.ResetPart();
-        }
-    }
-
-    public void SubmitAssembly() => RequestSubmit();
-    public void ResetAssembly() => RequestReset();
 
     private void OnNetworkScoreChanged(
         float previousValue,
@@ -203,41 +140,18 @@ public class AssemblyManager : NetworkBehaviour
         RefreshScoreDisplay();
     }
 
-    private void OnSubmittedChanged(
-        bool previousValue,
-        bool newValue)
-    {
-        ApplySubmittedState(newValue);
-        RefreshScoreDisplay();
-    }
-
-    private void ApplySubmittedState(bool isSubmitted)
-    {
-        foreach (AssemblePart part in parts)
-        {
-            if (part == null)
-                continue;
-
-            if (isSubmitted)
-                part.FreezeForSubmission();
-            else
-                part.UnfreezeAfterSubmission();
-        }
-    }
-
     private void CheckForSuccess()
     {
         if (!CalibrationLobby.CanPlay) return;
-        if (hasReachedSuccess || (IsSpawned && awaitingNetworkReset))
+        if (hasReachedSuccess)
             return;
-        if (IsSpawned && !networkSuccess.Value)
-            return;
-        float accuracy = IsSpawned ? networkScore.Value : (Submitted ? localScore : OverallScore);
-        if (!IsSpawned && accuracy < successThreshold)
+        // Wait for both the server's completion and all local snap updates. They
+        // can arrive in different frames because they belong to different objects.
+        if (!IsComplete)
             return;
         hasReachedSuccess = true;
         GetComponent<AssemblySuccessFeedback>()?.PlaySuccess();
-        Debug.Log($"[AssemblySuccess] Accuracy reached {accuracy:0}% (target {successThreshold:0}%).");
+        Debug.Log($"[AssemblySuccess] Completed: all {TotalPartCount} parts snapped and locked.");
         WriteScoreText();
     }
 
@@ -251,11 +165,6 @@ public class AssemblyManager : NetworkBehaviour
     {
         if (scoreText == null)
             return;
-        string accuracyText = Submitted
-            ? $"Final accuracy: {(IsSpawned ? networkScore.Value : localScore):0}%"
-            : $"Assembly accuracy: {(IsSpawned ? networkScore.Value : OverallScore):0}%";
-        scoreText.text = hasReachedSuccess
-            ? $"<color=#55FF77>SUCCESS!</color>\n{accuracyText}"
-            : accuracyText;
+        scoreText.text = $"Assembly accuracy: {(IsSpawned ? networkScore.Value : OverallScore):0}%";
     }
 }
