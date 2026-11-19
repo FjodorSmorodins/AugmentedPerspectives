@@ -1,0 +1,27 @@
+# Unity-generated files
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Bb]uild/
+/[Bb]uilds/
+/.utmp/
+/.vs/
+
+# Editor recovery scenes
+/Assets/_Recovery/
+/Assets/_Recovery.meta
+
+# Generated IDE projects
+*.csproj
+*.sln
+*.slnx
+*.user
+*.suo
+
+# Player builds and debugging backups
+*.apk
+*.aab
+/*_BackUpThisFolder_ButDontShipItWithYourGame/
+/*_BurstDebugInformation_DoNotShip/
