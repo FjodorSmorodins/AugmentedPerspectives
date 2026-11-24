@@ -14,7 +14,12 @@ public sealed class SpeakerStand : MonoBehaviour
     [SerializeField] private AudioSource speaker;
     [SerializeField] private string endpoint = "http://10.89.8.131:8765/translate";
 
+    public string Caption { get; private set; }
+    public string Status { get; private set; }
+
     private const string Ready = "Touch the stand or hold the sphere to speak";
+    private string readyMessage = Ready;
+    private string shortRecordingMessage = "Hold the sphere while you speak.";
     private const int MaxRecordingSeconds = 12;
     private static readonly HttpClient Bridge = new HttpClient(new HttpClientHandler { UseProxy = false })
     {
@@ -39,7 +44,16 @@ public sealed class SpeakerStand : MonoBehaviour
     private void OnEnable()
     {
         TranslationReceived += ShowCaption;
-        SetStatus(Ready);
+        SetStatus(readyMessage);
+    }
+
+    internal void ConfigureDesktop(string bridgeEndpoint, AudioSource audioSource)
+    {
+        endpoint = bridgeEndpoint;
+        speaker = audioSource;
+        readyMessage = "Hold ` / ~ to speak. Release to translate.";
+        shortRecordingMessage = "Hold ` / ~ while you speak.";
+        SetStatus(readyMessage);
     }
 
     private void Update()
@@ -141,7 +155,7 @@ public sealed class SpeakerStand : MonoBehaviour
         if (wave == null)
         {
             activeStand = null;
-            SetStatus(recordingByHand ? "Keep your hand near the stand while you speak." : "Hold the sphere while you speak.");
+            SetStatus(recordingByHand ? "Keep your hand near the stand while you speak." : shortRecordingMessage);
             return;
         }
 
@@ -159,7 +173,7 @@ public sealed class SpeakerStand : MonoBehaviour
         recording = null;
         microphone = null;
         activeStand = null;
-        SetStatus(Ready);
+        SetStatus(readyMessage);
     }
 
     private void StopCapture()
@@ -200,7 +214,7 @@ public sealed class SpeakerStand : MonoBehaviour
             : null;
         if (string.IsNullOrWhiteSpace(response?.translation))
         {
-            SetStatus(response?.error ?? "Local speech bridge unavailable. Check the bridge console.");
+            SetStatus(response?.error ?? "Speech bridge unavailable. Check the bridge console.");
             yield break;
         }
 
@@ -235,13 +249,15 @@ public sealed class SpeakerStand : MonoBehaviour
 
     private void ShowCaption(string english)
     {
+        Caption = english;
         if (caption != null)
             caption.text = english;
-        SetStatus(Ready);
+        SetStatus(readyMessage);
     }
 
     private void SetStatus(string message)
     {
+        Status = message;
         if (status != null)
             status.text = message;
     }
